@@ -1,13 +1,10 @@
+// src/pages/Profile.jsx
 import React, { useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../services/firebase";
 import { getSpotifyAuthUrl } from "../services/spotifyAuth";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-} from "firebase/firestore";
+import { getFirestore, doc, getDoc } from "firebase/firestore";
 import SpotifyBadge from "../components/SpotifyBadge";
 import { useAuth } from "../hooks/useAuth";
 import {
@@ -20,21 +17,22 @@ import "../styles/Profile.css";
 
 export default function Profile() {
   const [user, setUser] = useState(null);
-  const [loadingUser, setLoadingUser] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [spotifyLinked, setSpotifyLinked] = useState(!!getStoredTokens());
+  const navigate = useNavigate();
   const { handleLogout } = useAuth();
 
   // 1) Firebase Auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      setLoadingUser(false);
+      setLoading(false);
     });
     return () => unsub();
   }, []);
 
-  // 2) Al entrar usuario, cargamos tokens de Firestore
+  // 2) Al entrar usuario, importamos tokens desde Firestore
   useEffect(() => {
     if (!user) return;
     const db = getFirestore();
@@ -54,11 +52,16 @@ export default function Profile() {
       .catch((e) => console.error("❌ Error cargando tokens:", e));
   }, [user]);
 
-  // 3) Link / re-link de Spotify (siempre showDialog: true)
+  // 3) Vincular o Re-vincular Spotify
   const handleLinkSpotify = async () => {
     try {
+      // Limpia TODO cache local y cookies remotas
       clearSpotifyTokens({ force: true });
+      await logoutSpotifySession();
+
+      // Genera URL con diálogo forzado
       const authUrl = await getSpotifyAuthUrl({ showDialog: true });
+      // Redirige
       window.location.href = authUrl;
     } catch (err) {
       console.error("❌ Error iniciando flujo Spotify:", err);
@@ -66,21 +69,27 @@ export default function Profile() {
     }
   };
 
-  // 4) Logout de app + Spotify-session
-  const handleLogoutWithSpotify = async () => {
-    // 4.1) Deslogueo de cookies Spotify (popup que se auto-cierra)
-    logoutSpotifySession();
-
-    // 4.2) NOTA: no borramos tokens aquí si está dentro de los 3 días de gracia
-    //      (clearSpotifyTokens() sólo borrará si expiró la gracia)
-
-    // 4.3) Logout de Firebase
-    await handleLogout();
+  // 4) Cerrar sesión total (Spotify + Firebase)
+  const handleFullLogout = async () => {
+    try {
+      // 4.1) Limpia cookies remotas
+      await logoutSpotifySession();
+      // 4.2) Limpia cache local
+      clearSpotifyTokens({ force: true });
+      setSpotifyLinked(false);
+      // 4.3) Logout de Firebase
+      await handleLogout();
+      // 4.4) Redirige al login de la app
+      navigate("/login", { replace: true });
+    } catch (e) {
+      console.error("❌ Error cerrando sesión completa:", e);
+      setError("Hubo un problema al cerrar sesión.");
+    }
   };
 
-  if (loadingUser) {
+  if (loading) {
     return (
-      <div className="d-flex justify-content-center align-items-center vh-100 bg-dark text-white">
+      <div className="vh-100 d-flex justify-content-center align-items-center bg-dark text-white">
         <h2>Cargando usuario…</h2>
       </div>
     );
@@ -105,14 +114,7 @@ export default function Profile() {
           }}
         >
           <div className="text-center mb-4">
-            <h1
-              style={{
-                fontSize: "4rem",
-                fontWeight: 900,
-                color: "#e50914",
-                marginBottom: 0,
-              }}
-            >
+            <h1 style={{ fontSize: "4rem", fontWeight: 900, color: "#e50914", marginBottom: 0 }}>
               👤
             </h1>
             <h2 className="fw-bold">Perfil de Usuario</h2>
@@ -131,11 +133,10 @@ export default function Profile() {
                 className="rounded-circle bg-secondary d-flex justify-content-center align-items-center"
                 style={{ width: 80, height: 80, fontSize: "1.5rem" }}
               >
-                {user.displayName
-                  ? user.displayName.slice(0, 2).toUpperCase()
-                  : "NN"}
+                {user.displayName ? user.displayName.slice(0, 2).toUpperCase() : "NN"}
               </div>
             )}
+
             <p className="mb-0 font-semibold">
               {user.displayName || "Usuario sin nombre"}
             </p>
@@ -150,14 +151,12 @@ export default function Profile() {
               onClick={handleLinkSpotify}
               className="btn btn-success mt-4 w-100 rounded-pill"
             >
-              {spotifyLinked
-                ? "Re-vincular cuenta de Spotify"
-                : "Vincular cuenta de Spotify"}
+              {spotifyLinked ? "Re-vincular cuenta de Spotify" : "Vincular cuenta de Spotify"}
             </button>
 
             <button
               type="button"
-              onClick={handleLogoutWithSpotify}
+              onClick={handleFullLogout}
               className="btn btn-outline-light mt-4 w-100 rounded-pill"
             >
               Cerrar sesión
