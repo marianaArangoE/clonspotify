@@ -9,7 +9,7 @@ export default defineConfig({
     strictPort: true,
     cors: true,
     allowedHosts: [
-      'miapp.loca.lt'
+      'miapp.loca.lt','https://clonspotify.onrender.com/'
     ],
     hmr: {
       protocol: 'wss',
